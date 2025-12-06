@@ -35,7 +35,7 @@ class AuthController extends Controller
             'id_card_no' => $request->input('id_card_no'),
             'password' => $request->input('password'),
         ];
-        try {
+        // try {
             // if (! $token = JWTAuth::attempt($credentials)) {
             if (! $token = auth('users-api')->attempt($credentials)) {
                 return response()->json([
@@ -63,13 +63,13 @@ class AuthController extends Controller
                 'status' => true,
                 'data' => $user,
             ], 200, [], JSON_UNESCAPED_UNICODE);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => false,
-                'message' => 'خطأ في السيرفر أثناء محاولة تسجيل الدخول',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        // } catch (\Exception $e) {
+        //     return response()->json([
+        //         'status' => false,
+        //         'message' => 'خطأ في السيرفر أثناء محاولة تسجيل الدخول',
+        //         'error' => $e->getMessage()
+        //     ], 500);
+        // }
 
         // إذا نجح
         // return $this->respondWithToken($token);
