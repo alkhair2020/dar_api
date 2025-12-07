@@ -29,6 +29,7 @@ Route::group(['middleware' => ['api'],'prefix' => 'clients', 'namespace' => 'Api
 });
 Route::group(['middleware' => ['api'],'prefix' => 'users', 'namespace' => 'App\Http\Controllers\Api\Users'], function () {
     Route::post('login', 'AuthController@login');
+    Route::get('search-client', 'FrontController@searchClient');
 });
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
