@@ -3,15 +3,14 @@
 namespace App;
 
 use DarkGhostHunter\Larapass\Contracts\WebAuthnAuthenticatable;
-use DarkGhostHunter\Larapass\WebAuthnAuthentication;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Spatie\Permission\Traits\HasRoles;
+
 use Tymon\JWTAuth\Contracts\JWTSubject;
-class User extends Authenticatable implements WebAuthnAuthenticatable,JWTSubject
+class User extends Authenticatable implements JWTSubject
 {
-    use Notifiable , HasRoles , WebAuthnAuthentication;
+    use Notifiable  ;
 
     /**
      * The attributes that are mass assignable.

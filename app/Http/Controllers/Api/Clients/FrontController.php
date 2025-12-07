@@ -1,9 +1,7 @@
 <?php
-namespace App\Http\Controllers\Api\Users;
+namespace App\Http\Controllers\Api\Clients;
 
 use App\Http\Controllers\Controller;
-
-
 
 use Illuminate\Http\Request;
 use App\User;
@@ -31,8 +29,22 @@ class FrontController extends Controller
             ], 422);
         }
         if (!empty($idCardNumber)) {
-            $client = Client::where('id_card_number', '=', $idCardNumber)
-           ->first();
+            
+           $client = Client::where('id_card_number', '=', $idCardNumber)
+            ->with([
+                'marital_status:id,name_ar as maritalStatus',
+                'reason:id,name_ar as reasonName',
+                'cities:id,name_ar as cities',
+                'neighborhoods:id,name_ar as neighborhoods',
+                'affiliates:id,name_ar',
+                'kind_of_helps:id,name_ar as kindOfHelps',
+                'sexs:id,name_ar  as gender',
+                'status:id,name_ar as status',
+                'recommendations_by_user:id,name',
+                'recommendations:id,name_ar as recommendations',
+                'affiliates:id,name_ar as affiliateName',
+                'receipt_agents_clients:id,name'
+            ])->first();
             if ($client) {
                 return response()->json([
                 'status' => true,
