@@ -48,7 +48,7 @@ class FrontController extends Controller
             if ($client) {
                 return response()->json([
                 'status' => true,
-                'sgsdghdgf' => $client,
+                'data' => $client,
             ], 200);
             }
         }
