@@ -45,12 +45,12 @@ class FrontController extends Controller
                 'affiliates:id,name_ar as affiliateName',
                 'receipt_agents_clients:id,name'
             ])->first();
-            if ($client) {
+            
                 return response()->json([
-                'status' => true,
-                'data' => $client,
-            ], 200);
-            }
+                    'status' => true,
+                    'data' => $client,
+                ], 200);
+            
         }
     }
 }
