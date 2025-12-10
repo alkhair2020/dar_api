@@ -151,14 +151,14 @@ class FrontController extends Controller
 
                 // Update the basket_due_no property with the result, or default to 1 if no matching condition is found.
                 // $this->basket_due_no = $new_get_cart ? $new_get_cart->baskets : 1;
-                // $this->numberOfProducts = $new_get_cart ? $new_get_cart->baskets : 1;
+                return $new_get_cart ? $new_get_cart->baskets : 1;
                 
-                if($new_get_cart){
+                // if($new_get_cart){
                     
-                    $this->canReceiveReceipt($last_delivery_date,$new_get_cart->time);
-                }else{
-                    $this->basket_time=1;
-                }
+                //     $this->canReceiveReceipt($last_delivery_date,$new_get_cart->time);
+                // }else{
+                //     $this->basket_time=1;
+                // }
                 
             }
        
@@ -214,36 +214,69 @@ class FrontController extends Controller
     }
     public function createDelivery(Request $request)
     {
-        
+        $userLogin =Auth::guard('users-api')->user();
+            // $client = JWTAuth::parseToken()->authenticate();
+            if (!$userLogin) 
+                // return response()->json(['message' => 'يجب تسجيل الدخول'], 404);
+                return response()->json([
+                    'message' => 'يجب تسجيل الدخول',
+                    'status' => false,
+                ], 401, [], JSON_UNESCAPED_UNICODE);
         $this->initializeDeliveryService(App::make(DeliveryService::class));
         $client = Client::findOrFail($request->clientId);
         $clientAffiliate = $client->affiliate_id;
 
-        $distribution   = Distribution::find($request->distributions_id);
+        $distribution   = Distribution::find($request->distributionsId);
         // $distStatusID   =   $distribution->status;
-        // if($distribution->number_of_products !=$this->numberOfProducts){
-        //     $distribution->number_of_products  = $this->numberOfProducts;
-        //     $distribution->save();
-        // }
+        
        
-        if ($distStatusID == 2) {
+        if ($distribution->status == 2) {
             return response()->json([
                 'status' => false,
                 'message' => 'تم تسليم العميل سابقا'
             ], 401);
         } else {
-            $this->check_cart($client->date_of_birth,
+            
+            $checkCart=$this->check_cart($client->date_of_birth,
                             $client->family_member,
                             $client->separate_family_member,
                             $client->nationality_id,
                             $client->marital_status_id,
                             $client->last_delivery_date);
-            $date_of_birth_carbon   = new Carbon($this->birth_date);
+             if ($checkCart<1) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'عدد السلال يساوي صفر!',
+                ], 401);
+            }
+           $mypermissions = DB::table('model_has_permissions')
+            ->join('permissions', 'permissions.id', '=', 'model_has_permissions.permission_id')
+            ->where('model_has_permissions.model_id', $userLogin->id)
+            ->where('model_has_permissions.model_type', 'App\\User')
+            ->pluck('permissions.name')
+            ->toArray(); 
+            // $canCreatePermissions = in_array('create_permissions', $directPermissions);
+
+            if(!in_array('edit_baskets', $mypermissions) ){
+                if ( $distribution->number_of_products>1  || $distribution->number_of_products<1 ) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => 'عدد السلال يجب يكون سلة واحده',
+                    ], 401); 
+                }
+            }else{
+                if($distribution->number_of_products !=$checkCart){
+                    $distribution->number_of_products  = $checkCart;
+                    $distribution->save();
+                }
+            }
+            
+            $date_of_birth_carbon   = new Carbon($client->date_of_birth);
             $date_of_birth_year     = $date_of_birth_carbon->format('Y');
             $date_of_birth_month    = $date_of_birth_carbon->format('m');
             $date_of_birth_day      = $date_of_birth_carbon->format('d');
             if ($date_of_birth_year > 1700) {
-                $d2_carbon = new Carbon($this->birth_date);
+                $d2_carbon = new Carbon($client->date_of_birth);
                 $date_birth = $d2_carbon->format('Y-m-d');
             } else {
                 $d2 =  Hijri::convertToHijri(new \DateTime($date_of_birth))->format('Y-m-d');
@@ -251,36 +284,25 @@ class FrontController extends Controller
                 $date_birth = $d2_carbon->format('Y-m-d');
             }
             
-            $userTimezone = Auth::user()->timezone;
-            if (is_null($this->receipt_agent)) {
-                $this->receipt_agent = 0;
-            }
+            $userTimezone = $userLogin->timezone;
+            // dd('ccc');
             
-            $delivery_agent_couunt=count($this->delivery_agent);
-            if ( $this->numberOfProducts<1) {
-                $this->errorMessage = 'عدد السلال يساوي صفر!';
-                return; 
-            }else {
-                $this->errorMessage = null; 
-            }
             
-            if(!auth()->user()->can('edit_baskets')){
-                if ( $this->numberOfProducts>1) {
-                    $this->errorMessage = 'لا يُسمح بتسليم أكثر من سلة.';
-                    return; 
-                }else {
-                    $this->errorMessage = null; 
-                }
-            }
+            
             
 
-            if (is_null($this->phone)) {
-                $this->errorMessage = 'رقم الجوال مطلوب';
-                return;
+            if (is_null($client->mobile)) {
+               
+                return response()->json([
+                    'status' => false,
+                    'message' => 'رقم الجوال مطلوب',
+                ], 401); 
             }
-            if (strlen((string)$this->phone) < 12) {
-                $this->errorMessage ='رقم الجوال مطلوب ويجب أن يكون 12 رقمًا على الأقل';
-                return;
+            if (strlen((string)$client->mobile) < 12) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'رقم الجوال مطلوب ويجب أن يكون 12 رقمًا على الأقل',
+                ], 401); 
             }
             
             $data = $this->validate();
@@ -294,45 +316,61 @@ class FrontController extends Controller
             $add_eliveries->affiliates_id       =$clientAffiliate;
             $add_eliveries->delivery_store_id   =$this->delivery_store_id ?? $client->delivery_store_id;
             $add_eliveries->delivery_date       = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
-            if ( $delivery_agent_couunt > 0) {
-                $add_eliveries->recipient_name      =json_encode($this->delivery_agent,JSON_UNESCAPED_UNICODE);
-            }
-            $add_eliveries->recipient_agents_clients_id =$this->receipt_agent;
-            $add_eliveries->note =$this->distributionNote;
-            $add_eliveries->car_number =$this->car_number ?:0;
+            // if ( $delivery_agent_couunt > 0) {
+            //     $add_eliveries->recipient_name      =json_encode($this->delivery_agent,JSON_UNESCAPED_UNICODE);
+            // }
+            // $add_eliveries->recipient_agents_clients_id =$this->receipt_agent;
+            $add_eliveries->recipient_agents_clients_id =2;
+            // $add_eliveries->note =$this->distributionNote;
+            // $add_eliveries->car_number =$this->car_number ?:0;
             $add_eliveries->save();
             
             $data = [
-                'phone'                             =>  $this->phone,
+                'phone'                             =>  $client->phone,
                 'last_delivery_date'                =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
             ];
             $client->update($data);
-            $editedist                            = Distribution::find($this->distributions_id);
-            if($client->marital_status_id == 6 || $client->marital_status_id == 7 || $client->marital_status_id == 8){
-                if($editedist->number_of_products == $this->numberOfProducts){
-                    $editedist->number_of_products = $editedist->number_of_products - $this->numberOfProducts;
-                    $editedist->status            = 2;
-                }else{
-                    $editedist->number_of_products = $editedist->number_of_products - $this->numberOfProducts;
-                    $editedist->status            = 1;
-                }
-            }else{
-                $editedist->number_of_products  = $this->numberOfProducts;
-                $editedist->status                = 2;
-            }
+            $editedist          = Distribution::find($request->distributionsId);
+            $editedist->number_of_products  = $distribution->number_of_products;
+            $editedist->status  = 2;
             $editedist->save();
             $this->increment_in_dist_delivery_counter();
-
-            $this->alert('success', 'تم إعتماد التسليم بنجاح 👍 ', [
-                'position'  =>  'center',
-                'timer'  =>  3000,
-                'toast'  =>  false,
-                'text'  =>  $this->name,
-                'showCancelButton'  =>  false,
-                'showConfirmButton'  =>  false
-            ]);
+            return response()->json([
+                'status' => true,
+                'message' => 'تم التسليم',
+                
+            ], 200, [], JSON_UNESCAPED_UNICODE);
+            
             
         }
     }
+    public function increment_in_dist_delivery_counter()
+    {
 
+        $userTimezone = Auth::user()->timezone;
+        $in_dist_counter = In_dist_counter_today::orderBy('id', 'desc')->first();
+        $this->count_in_dist_counter = $this->in_dist_counter->counter;
+        $this->date_in_dist_counter = $this->in_dist_counter->created_at->format('Y-m-d');
+
+        // dd($this->date_in_dist_counter, Carbon::today($userTimezone)->format('Y-m-d'));
+
+        if ($this->date_in_dist_counter == Carbon::now($userTimezone)->format('Y-m-d')) {
+            $this->count_in_dist_counter++;
+            $in_dist_counter->create([
+                'counter'                           =>  $this->count_in_dist_counter,
+                'created_at'                        =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
+            ]);
+        } else {
+            $this->date_in_dist_counter  = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
+            $this->count_in_dist_counter = 0;
+            $this->count_in_dist_counter++;
+
+            $in_dist_counter->truncate();
+
+            $in_dist_counter->create([
+                'counter'             =>  $this->count_in_dist_counter,
+                'created_at'          =>  $this->date_in_dist_counter,
+            ]);
+        }
+    }
 }
