@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
+class ClientService
+{
+    /**
+     * Get the first 10 clients without distributions for the current month.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function getClientsWithoutDistributions()
+    {
+        return DB::table('clients')
+            ->leftJoin('distributions', function ($join) {
+                $join->on('clients.id', '=', 'distributions.clients_id')
+                     ->where('distributions.status', '=', 1);
+            })
+            ->whereNull('distributions.clients_id')
+            ->select('clients.id', 'clients.basket_due_no', 'clients.name')
+            ->orderBy('id', 'desc')
+            ->limit(10)
+            ->get();
+    }
+    
+
+    /**
+     * Create distributions for clients.
+     *
+     * @param array $clients The array of clients to create distributions for
+     */
+    public function createDistributionsForClients($clients)
+    {
+        foreach ($clients as $client) {
+            DB::table('distributions')->insert([
+                'distribution_date' => now(),
+                'clients_id' => $client->id,
+                'products_id' => 1,
+                'number_of_products' =>$client->basket_due_no , // Adjust this as necessary
+                'status' => 1,
+                'note' => 'created from system',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+
+    /**
+     * Log the execution of a command.
+     *
+     * @param datatype $operation Description of the operation being logged
+     * @param datatype $affectedClients Description of the affected clients
+     */
+    public function logCommandExecution($operation, $affectedClients)
+    {
+        DB::table('command_logs')->insert([
+            'command_run_date' => now(),
+            'operation' => $operation,
+            'affected_clients' => $affectedClients,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+}

@@ -1,0 +1,228 @@
+<?php
+
+namespace App\Traits;
+
+use Carbon\Carbon;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+trait NicData
+{
+    /**
+     * Calls the API with the provided data and returns the response.
+     *
+     * @param array $data The data to be sent to the API.
+     *                   - national: The nationality of the user.
+     *                   - birth_month: The birth month of the user.
+     *                   - birth_year: The birth year of the user.
+     *                   - id_no: The ID number of the user.
+     *                   - user_id: The ID of the user.
+     * @return \Illuminate\Http\JsonResponse The JSON response containing the API data or error message.
+     */
+    public function callApi($data)
+    {
+        
+        $national = $data['national'];
+        $birth_month = $data['birth_month'];
+        $birth_year = $data['birth_year'];
+        // $data_center_status = $data['data_center_status'];
+        $id_no = $data['id_no'];
+        $user_id = $data['user_id'];
+
+        $birth_d = null;
+
+
+        if ($id_no) {
+            if (!$birth_month && !$birth_year) {
+                return response()->json(['error' => " تاريخ الميلاد مطلوب", 'validation' => true], 400);
+            } else {
+                $birth_d = date('Y-m', strtotime($birth_year . '-' . $birth_month)); //$request->get('birth_year') . '-' . $request->get('birth_month');//strtotime();
+            }
+
+            // check for login date in DB, if less than 24 h, get token, if not, login
+            $log = null;
+            $logged = DB::table('user_datacenter_log')->select(['login_date', 'token'])->where('user_id', $user_id)->orderByDesc('id')->first();
+
+            if ($logged) {
+                $last_login = Carbon::parse($logged->login_date);
+                if ($last_login->diffInHours(Carbon::now()) < 24) {
+                    // use token in table
+                    $log = $logged->token;
+                } else {
+                    // login
+                    $login = Http::withHeaders([
+                        "app-id" => "6a8020cb",
+                        "app-key" => "4a5cf5aa0d113fbbe560ec714a043e67",
+                    ])
+                        ->acceptJson()
+                        ->get('https://yakeencore.api.elm.sa/api/v1/yakeen/login', [
+                            "Username" => "HIJAZIA_BUSINESS_COMPANY_FOR_UMRAH_SERVICES_YAK",
+                            "Password" => "IuWD9P7je3oS6C7HXPdi"
+                        ]);
+
+                    $log_details = $login->json();
+
+                    $log = join(" ", [$log_details['token_type'], $log_details['access_token']]);
+
+                    DB::table('user_datacenter_log')->insert([
+                        'user_id' => Auth::user()->id,
+                        'token' => $log,
+                        'login_date' => Date::now(),
+                    ]);
+                }
+                //  dd($log);
+            } else {
+                // login
+                // insert into table
+                $login = Http::withHeaders([
+                    "app-id" => "6a8020cb",
+                    "app-key" => "4a5cf5aa0d113fbbe560ec714a043e67",
+                ])
+                    ->acceptJson()
+                    ->get('https://yakeencore.api.elm.sa/api/v1/yakeen/login', [
+                        "Username" => "HIJAZIA_BUSINESS_COMPANY_FOR_UMRAH_SERVICES_YAK",
+                        "Password" => "IuWD9P7je3oS6C7HXPdi"
+                    ]);
+
+                $log_details = $login->json();
+
+                $log = join(" ", [$log_details['token_type'], $log_details['access_token']]);
+
+                DB::table('user_datacenter_log')->insert([
+                    'user_id' => $user_id,
+                    'token' => $log,
+                    'login_date' => Date::now(),
+                ]);
+            }
+
+
+
+            $response = null;
+            if ($national == 1) {
+                $response = Http::withHeaders([
+                    "Authorization" => $log,
+                    "app-id" => "6a8020cb",
+                    "app-key" => "4a5cf5aa0d113fbbe560ec714a043e67",
+                    "service-identifier" => "b37deb87-4901-47cd-9c81-f29a7d86b467",
+                    "usage-code" => "USC80006",
+                    "operator-id" => "7007879237",
+                ])
+                    // ->acceptJson()
+                    ->get('https://yakeencore.api.elm.sa/api/v1/yakeen/data', [
+                        "nin" => $id_no,
+                        "dateString" =>  $birth_d
+                    ]);
+            } elseif ($national == 0) {
+                $response = Http::withHeaders([
+                    "Authorization" => $log,
+                    "app-id" => "6a8020cb",
+                    "app-key" => "4a5cf5aa0d113fbbe560ec714a043e67",
+                    "service-identifier" => "0b91c5d5-ba3d-493e-b550-27a125563c85",
+                    "usage-code" => "USC80006",
+                    "operator-id" => "7007879237",
+                ])
+                    // ->acceptJson()
+                    ->get('https://yakeencore.api.elm.sa/api/v1/yakeen/data', [
+                        "iqama" => $id_no,
+                        "birthDateG" =>  $birth_d
+                    ]);
+            }
+
+            $data = $response->json();
+
+            // return response()->json(['error' => $response->json(), 'validation' => false], 400);
+
+            if ($response->status() == 200) {
+                $res = array_merge($data["personBasicInfo"], $data['personDependents']);
+
+                $marital = DB::table('marital_status_data_center')->where('name', '=', $res["maritalStatusDescAr"])->first();
+
+                $marital_status = null;
+                if ($marital) {
+                    $marital_status = $marital->marital_status;
+                } else {
+                    $marital_status = 5;
+                }
+
+
+                $country = null;
+                $nat = null;
+                if (array_key_exists("nationalityDescAr", $res)) {
+                    $country_obj = DB::table('countries')
+                        ->where('country_arName', $res["nationalityDescAr"])
+                        ->first();
+
+                    if ($country_obj) {
+                        $country = $country_obj->country_code;
+                    } else {
+                        $country = null;
+                    }
+                    $nat = $res["nationalityDescAr"];
+                } else {
+                    $country = 'SA';
+                    $nat = "المملكة العربية السعودية";
+                }
+
+                $res['id_no'] = $id_no;
+                $res['birthday'] = explode("T", $res["birthDateG"])[0];
+                $res['full_name'] = join(" ", [$res["firstName"], $res["fatherName"], $res["grandFatherName"], $res["familyName"]]);
+                $res['sex'] = $res["sexDescAr"] == "ذكر" ? 1 : 2;
+                $res['marital_status'] = $marital_status;
+                $res['nationality'] = $country;
+                $res['status'] = $res["maritalStatusDescAr"];
+                $res['country'] = $nat;
+
+                // $info = [
+                //     "id_no" => $request->get('id_no'),
+                //     "birthday" => explode("T", $res["birthDateG"])[0],
+                //     "full_name" => join(" ", [$res["firstName"], $res["fatherName"], $res["grandFatherName"], $res["familyName"]]),
+                //     "sex" => $res["sexDescAr"] == "ذكر" ? 1 : 2,
+                //     "marital_status" => $marital_status,
+                //     "nationality" => $country,
+                //     "status" => $res["maritalStatusDescAr"],
+                //     "country" => $nat
+                // ];
+
+                return response()->json(['body' => $res], 200);
+            } else {
+                $error_msg = null;
+                if (array_key_exists('errorDetail', $data)) {
+                    if (strpos($data['errorDetail']['errorTitle'], 'Cross-Check') !== false) {
+                        $error_msg = 'تاريخ الميلاد غير مطابق';
+                    } elseif (strpos($data['errorDetail']['errorTitle'], 'Invalid Input') !== false) {
+                        $error_msg = 'يوجد خطأ في البيانات: الهوية/الاقامة';
+                        Log::error("API Error: " . $data);
+
+                        // Insert the error message into a database table
+                        DB::table('log_table')->insert([
+                            'error_message' => $data,
+                            'created_at' => now(), // Assuming you have a 'created_at' column for timestamps
+                            'updated_at' => now(), // Assuming you have an 'updated_at' column for timestamps
+                        ]);
+                    } else {
+                        $error_msg = 'حدث خطأ في النظام';
+                    }
+                } else {
+                    $error_msg = 'حدث خطأ في النظام';
+                    Log::error("API Error: " . $data);
+
+                    // Insert the error message into a database table
+                    DB::table('log_table')->insert([
+                        'error_message' => $data,
+                        'created_at' => now(), // Assuming you have a 'created_at' column for timestamps
+                        'updated_at' => now(), // Assuming you have an 'updated_at' column for timestamps
+                    ]);
+                }
+
+                return response()->json(['error' => $error_msg, 'validation' => false], 400);
+            }
+        } else {
+            return response()->json(['error' => "رقم الهوية مطلوب", 'validation' => true], 400);
+        }
+    }
+}

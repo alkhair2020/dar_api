@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\Route;
 Route::group(['middleware' => ['api'],'prefix' => 'clients', 'namespace' => 'App\Http\Controllers\Api\Clients'], function () {
     Route::post('login', 'AuthController@login');
      Route::get('search-client', 'FrontController@searchClient');
+    Route::post('create-delivery', 'FrontController@createDelivery');
 });
 Route::group(['middleware' => ['api'],'prefix' => 'users', 'namespace' => 'App\Http\Controllers\Api\Users'], function () {
     Route::post('login', 'AuthController@login');
