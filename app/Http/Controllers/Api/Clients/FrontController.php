@@ -22,6 +22,7 @@ use App\Distribution;
 use App\Deliveries;
 use App\ClientNotes;
 use App\Receipt_agents_client;
+use App\In_dist_counter_today;
 class FrontController extends Controller
 {
     public function searchClient(Request $request)
@@ -208,27 +209,18 @@ class FrontController extends Controller
                 return 11; // Default case if none above matches
         }
     }
-    private function initializeDeliveryService(DeliveryService $deliveryService)
-    {
-        $this->deliveryService = $deliveryService;
-    }
-    public function createDelivery(Request $request)
+    
+    public function createDelivery(Request $request,DeliveryService $deliveryService)
     {
         $userLogin =Auth::guard('users-api')->user();
-            // $client = JWTAuth::parseToken()->authenticate();
-            if (!$userLogin) 
-                // return response()->json(['message' => 'يجب تسجيل الدخول'], 404);
-                return response()->json([
-                    'message' => 'يجب تسجيل الدخول',
-                    'status' => false,
-                ], 401, [], JSON_UNESCAPED_UNICODE);
-        $this->initializeDeliveryService(App::make(DeliveryService::class));
+            
+        if (!$userLogin) 
+            return response()->json([
+                'message' => 'يجب تسجيل الدخول',
+                'status' => false,
+            ], 401, [], JSON_UNESCAPED_UNICODE);
         $client = Client::findOrFail($request->clientId);
-        $clientAffiliate = $client->affiliate_id;
-
         $distribution   = Distribution::find($request->distributionsId);
-        // $distStatusID   =   $distribution->status;
-        
        
         if ($distribution->status == 2) {
             return response()->json([
@@ -255,13 +247,12 @@ class FrontController extends Controller
             ->where('model_has_permissions.model_type', 'App\\User')
             ->pluck('permissions.name')
             ->toArray(); 
-            // $canCreatePermissions = in_array('create_permissions', $directPermissions);
 
             if(!in_array('edit_baskets', $mypermissions) ){
                 if ( $distribution->number_of_products>1  || $distribution->number_of_products<1 ) {
                     return response()->json([
                         'status' => false,
-                        'message' => 'عدد السلال يجب يكون سلة واحده',
+                        'message' => 'عدد السلال يجب ان يكون سلة واحدة',
                     ], 401); 
                 }
             }else{
@@ -285,37 +276,30 @@ class FrontController extends Controller
             }
             
             $userTimezone = $userLogin->timezone;
-            // dd('ccc');
-            
-            
-            
-            
-
-            if (is_null($client->mobile)) {
-               
+            if (is_null($client->phone)) {
                 return response()->json([
                     'status' => false,
                     'message' => 'رقم الجوال مطلوب',
                 ], 401); 
             }
-            if (strlen((string)$client->mobile) < 12) {
+            if (strlen((string)$client->phone) < 12) {
                 return response()->json([
                     'status' => false,
                     'message' => 'رقم الجوال مطلوب ويجب أن يكون 12 رقمًا على الأقل',
                 ], 401); 
             }
             
-            $data = $this->validate();
-            $add_eliveries                      = new Deliveries();
-            $add_eliveries->clients_id          =$this->clientID;
-            $add_eliveries->distributions_id    = $this->distributions_id;
-            $add_eliveries->products_id         =$this->productID;
-            $add_eliveries->quantity            = $this->numberOfProducts;
-            $add_eliveries->delivery_users_id   =Auth::user()->id;
-            $add_eliveries->delivery_affiliates_id =Auth::user()->affiliates_id;
-            $add_eliveries->affiliates_id       =$clientAffiliate;
-            $add_eliveries->delivery_store_id   =$this->delivery_store_id ?? $client->delivery_store_id;
-            $add_eliveries->delivery_date       = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
+            
+            $add_eliveries                          = new Deliveries();
+            $add_eliveries->clients_id              = $request->clientId;
+            $add_eliveries->distributions_id        = $request->distributionsId;
+            $add_eliveries->products_id             = 1;
+            $add_eliveries->quantity                = $distribution->number_of_products;
+            $add_eliveries->delivery_users_id       = $userLogin->id;
+            $add_eliveries->delivery_affiliates_id  = $userLogin->affiliates_id;
+            $add_eliveries->affiliates_id           = $client->affiliate_id;
+            $add_eliveries->delivery_store_id       = $client->delivery_store_id;
+            $add_eliveries->delivery_date           = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
             // if ( $delivery_agent_couunt > 0) {
             //     $add_eliveries->recipient_name      =json_encode($this->delivery_agent,JSON_UNESCAPED_UNICODE);
             // }
@@ -325,6 +309,15 @@ class FrontController extends Controller
             // $add_eliveries->car_number =$this->car_number ?:0;
             $add_eliveries->save();
             
+             // Update stock and delivered items
+            try {
+                $deliveryService->processDelivery($client->delivery_store_id, $distribution->number_of_products);
+            } catch (\Exception $e) {
+                $this->emit('showToastError', 'Stock update failed: ' . $e->getMessage());
+                return;
+            }
+
+
             $data = [
                 'phone'                             =>  $client->phone,
                 'last_delivery_date'                =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
@@ -338,7 +331,6 @@ class FrontController extends Controller
             return response()->json([
                 'status' => true,
                 'message' => 'تم التسليم',
-                
             ], 200, [], JSON_UNESCAPED_UNICODE);
             
             
@@ -346,30 +338,28 @@ class FrontController extends Controller
     }
     public function increment_in_dist_delivery_counter()
     {
-
-        $userTimezone = Auth::user()->timezone;
+        $userTimezone =Auth::guard('users-api')->user()->timezone;
+        // $userTimezone = Auth::user()->timezone;
         $in_dist_counter = In_dist_counter_today::orderBy('id', 'desc')->first();
-        $this->count_in_dist_counter = $this->in_dist_counter->counter;
-        $this->date_in_dist_counter = $this->in_dist_counter->created_at->format('Y-m-d');
+        $count_in_dist_counter = $in_dist_counter->counter;
+        $date_in_dist_counter = $in_dist_counter->created_at->format('Y-m-d');
 
-        // dd($this->date_in_dist_counter, Carbon::today($userTimezone)->format('Y-m-d'));
-
-        if ($this->date_in_dist_counter == Carbon::now($userTimezone)->format('Y-m-d')) {
-            $this->count_in_dist_counter++;
+        if ($date_in_dist_counter == Carbon::now($userTimezone)->format('Y-m-d')) {
+            $count_in_dist_counter++;
             $in_dist_counter->create([
-                'counter'                           =>  $this->count_in_dist_counter,
+                'counter'                           =>  $count_in_dist_counter,
                 'created_at'                        =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
             ]);
         } else {
-            $this->date_in_dist_counter  = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
-            $this->count_in_dist_counter = 0;
-            $this->count_in_dist_counter++;
+            $date_in_dist_counter  = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
+            $count_in_dist_counter = 0;
+            $count_in_dist_counter++;
 
             $in_dist_counter->truncate();
 
             $in_dist_counter->create([
-                'counter'             =>  $this->count_in_dist_counter,
-                'created_at'          =>  $this->date_in_dist_counter,
+                'counter'             =>  $count_in_dist_counter,
+                'created_at'          =>  $date_in_dist_counter,
             ]);
         }
     }
