@@ -209,11 +209,38 @@ class FrontController extends Controller
                 return 11; // Default case if none above matches
         }
     }
+    public function increment_in_dist_delivery_counter()
+    {
+        $userTimezone =Auth::guard('users-api')->user()->timezone;
+        // $userTimezone = Auth::user()->timezone;
+        $in_dist_counter = In_dist_counter_today::orderBy('id', 'desc')->first();
+        $count_in_dist_counter = $in_dist_counter->counter;
+        $date_in_dist_counter = $in_dist_counter->created_at->format('Y-m-d');
+
+        if ($date_in_dist_counter == Carbon::now($userTimezone)->format('Y-m-d')) {
+            $count_in_dist_counter++;
+            $in_dist_counter->create([
+                'counter'                           =>  $count_in_dist_counter,
+                'created_at'                        =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
+            ]);
+        } else {
+            $date_in_dist_counter  = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
+            $count_in_dist_counter = 0;
+            $count_in_dist_counter++;
+
+            $in_dist_counter->truncate();
+
+            $in_dist_counter->create([
+                'counter'             =>  $count_in_dist_counter,
+                'created_at'          =>  $date_in_dist_counter,
+            ]);
+        }
+    }
+
     
     public function createDelivery(Request $request,DeliveryService $deliveryService)
     {
         $userLogin =Auth::guard('users-api')->user();
-            
         if (!$userLogin) 
             return response()->json([
                 'message' => 'يجب تسجيل الدخول',
@@ -336,31 +363,525 @@ class FrontController extends Controller
             
         }
     }
-    public function increment_in_dist_delivery_counter()
+    
+
+    
+    public function saveClient(Request $request)
     {
-        $userTimezone =Auth::guard('users-api')->user()->timezone;
-        // $userTimezone = Auth::user()->timezone;
-        $in_dist_counter = In_dist_counter_today::orderBy('id', 'desc')->first();
-        $count_in_dist_counter = $in_dist_counter->counter;
-        $date_in_dist_counter = $in_dist_counter->created_at->format('Y-m-d');
-
-        if ($date_in_dist_counter == Carbon::now($userTimezone)->format('Y-m-d')) {
-            $count_in_dist_counter++;
-            $in_dist_counter->create([
-                'counter'                           =>  $count_in_dist_counter,
-                'created_at'                        =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
-            ]);
+        $userLogin =Auth::guard('users-api')->user();
+        if (!$userLogin) 
+            return response()->json([
+                'message' => 'يجب تسجيل الدخول',
+                'status' => false,
+            ], 401, [], JSON_UNESCAPED_UNICODE);
+        $birthday = $request->date_of_birth;
+        $date_of_birth_carbon = new Carbon($birthday);
+        $date_of_birth_year = $date_of_birth_carbon->format('Y');
+        $date_of_birth_month = $date_of_birth_carbon->format('m');
+        $date_of_birth_day = $date_of_birth_carbon->format('d');
+        if ($date_of_birth_year > 1700) {
+            $d2_carbon = new Carbon($birthday);
+            $date_birth_format = $d2_carbon->format('Y-m-d');
         } else {
-            $date_in_dist_counter  = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
-            $count_in_dist_counter = 0;
-            $count_in_dist_counter++;
+            $d2 = Hijri::convertToHijri(new \DateTime($birthday))->format('Y-m-d');
+            $d2_carbon = new Carbon($d2);
+            $date_birth_format = $d2_carbon->format('Y-m-d');
+        }
+       
+        $userTimezone = $userLogin->timezone;
+        $checkCart=$this->check_cart($request->date_of_birth,
+                            $request->family_member,
+                            $request->separate_family_member,
+                            $request->nationality_id,
+                            $request->marital_status_id,
+                            $request->last_delivery_date);
+        
+        $data = [
+            'id_card_number' => $request->id_card_no,
+            'nationality_id' => $request->nationality_id,
+            'name' => $request->full_name,
+            'sex' => $request->sex,
+            'homeStatus' => $request->homeStatus == 'true' ? true : false,
+            'phone' => $request->phone ? $request->phone : 000000000000,
+            'email' => $request->email,
+            'date_of_birth' => $date_birth_format,
+            'family_member' => $request->dependents_count ?? 0,
+            'separate_family_member' => $request->separate_family_member ?? 0,
+            'marital_status_id' => $request->marital_status,
+            'reason_id' => $request->reason,
+            'city_id' => $request->city_id,
+            'neighborhood_id' => $request->neighborhood_id,
+            'address' => $request->address,
+            'affiliate_id' => $request->affiliate_id,
+            'delivery_store_id' => $request->delivery_store_id ?? 1,
+            'kind_of_help' => $request->kind_of_help,
+            'basket_due_no' => $checkCart,
+            'status_temp_perm_id' => $request->status_temp_perm_id,
+            'note' => $request->note,
+            'user_add_id' => $userLogin->id,
+            'recommendations_by_user_id' => $request->recommendations_by_user,
+            'recommendations_id' => $request->recommendations_id,
+            'client_status' => $request->approve,
+            'certified_by_id' => $userLogin->id, //what??
+            'last_delivery_date' => Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
+            'amount_of_financialHelp' => $request->amount_of_financialHelp,
+            'cam_img' => $request->cam_img,
+        ];
+        $client = null;
+        $checker = null;
+        $edit_deliver = null;
+        // Create New Client and add his data to data_center Table
+        $client = Client::create($data);
+        DB::table('data_center')->insert([
+            'client_id' => $client->id,
+            'data_center_status' => $request->client_found,
+            'date' => Date::now(),
+        ]);
+       
 
-            $in_dist_counter->truncate();
+        // start create Distribution
+        $clientID = $client->id;
+        $clientBasket = $client->basket_due_no;
+        $distributionDate = Carbon::now($userTimezone)->format('yy-m-d');
+        $distribution = new Distribution();
+        $distribution->distribution_date = $distributionDate;
+        $distribution->clients_id = $clientID;
+        $distribution->products_id = 1;
+        $distribution->number_of_products = $clientBasket;
+        $distribution->status = 1;
+        $distribution->save();
+    
+        
 
-            $in_dist_counter->create([
-                'counter'             =>  $count_in_dist_counter,
-                'created_at'          =>  $date_in_dist_counter,
+        // If agents not empty and first one has name 
+        // if (!empty($this->agents_list) && !empty($this->agents_list[0]['name'])) {
+        //     foreach ($this->agents_list as $agent) {
+        //         $dateOfBirth = Carbon::createFromDate(@$agent['birth_year'])->format('Y-m-d');
+        //         Receipt_agents_client::updateOrCreate(
+        //             ['id' => $agent['id'] ?? null ], 
+        //                 'clients_id' => $client->id,
+        //                 'id_card_no' => $agent['id_card_no'],
+        //                 'name' => $agent['name'],
+        //                 'phone' => $agent['phone'] ?? null, 
+        //                 'kinship_id' => $agent['kinship_id'],
+        //                 'date_of_birth' => $dateOfBirth,
+        //             ]
+        //         );
+        //     }
+        // }
+        return response()->json([
+            'status' => true,
+            'message' => 'تم الحفظ بنجاح',
+        ], 200, [], JSON_UNESCAPED_UNICODE);
+    }
+    public function EditClient(Request $request,DeliveryService $deliveryService)
+    {
+        $userLogin =Auth::guard('users-api')->user();
+        if (!$userLogin) 
+            return response()->json([
+                'message' => 'يجب تسجيل الدخول',
+                'status' => false,
+            ], 401, [], JSON_UNESCAPED_UNICODE);
+        $birthday = $request->date_of_birth;
+        $date_of_birth_carbon = new Carbon($birthday);
+        $date_of_birth_year = $date_of_birth_carbon->format('Y');
+        $date_of_birth_month = $date_of_birth_carbon->format('m');
+        $date_of_birth_day = $date_of_birth_carbon->format('d');
+
+        if ($date_of_birth_year > 1700) {
+            $d2_carbon = new Carbon($birthday);
+            $date_birth_format = $d2_carbon->format('Y-m-d');
+        } else {
+            $d2 = Hijri::convertToHijri(new \DateTime($birthday))->format('Y-m-d');
+            $d2_carbon = new Carbon($d2);
+            $date_birth_format = $d2_carbon->format('Y-m-d');
+        }
+        
+        $userTimezone = $userLogin->timezone;
+        $checkCart=$this->check_cart($request->date_of_birth,
+                            $request->family_member,
+                            $request->separate_family_member,
+                            $request->nationality_id,
+                            $request->marital_status_id,
+                            $request->last_delivery_date);
+        $cart = $this->basket_due_no;
+        $data = [
+            'status_temp_perm_id' => $request->status_temp_perm_id,
+            'sex' => $request->sex,
+            'id_card_number' => $request->id_card_no,
+            'name' => $request->full_name,
+            'date_of_birth' => $date_birth_format,
+            'phone' => $request->phone ? $request->phone : 000000000000,
+            'nationality_id' => $request->nationality_id,
+            'city_id' => $request->city_id,
+            'marital_status_id' => $request->marital_status,
+            'family_member' => $request->family_member ?? 0,
+            'separate_family_member' => $request->separate_family_member ?? 0,
+            'basket_due_no' => $checkCart,
+            'reason_id' => $request->reason,
+            'client_status' => $request->client_status,
+            'client_status_note' => $request->client_status_note,
+
+            'neighborhood_id' => $request->neighborhood_id,
+            'address' => $request->address,
+            'email' => $request->email,
+            'delivery_store_id' => $request->delivery_store_id ?? 1,
+            'affiliate_id' => $request->affiliate_id,
+            'user_add_id' => $userLogin->id,
+            'recommendations_by_user_id' => $request->recommendations_by_user,
+            'recommendations_id' => $request->recommendations_id,
+            'certified_by_id' => $userLogin ->id,
+            'last_delivery_date' => Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
+        ];
+        
+        Client::find($request->clientId)->update($data);
+        
+        $client = Client::find($this->client->id);
+        $data_center = DB::table('data_center')->select('data_center_status', 'client_id', 'person_data')->where('client_id', $request->clientId)->first();
+        if ($data_center) {
+            if ($request->client_found) {
+                DB::table('data_center')->where('client_id', $client->id)->update([
+                    'data_center_status' => $request->client_found,
+                    'date' => Date::now(),
+                ]);
+            }
+        } else {
+            DB::table('data_center')->insert([
+                'client_id' => $client->id,
+                'data_center_status' => $request->client_found,
+                'date' => Date::now(),
             ]);
         }
+        $check_dist = Distribution::where('clients_id',  $request->clientId)->where('status', 1)->first();
+        if($check_dist){
+            $check_dist->update([
+                'number_of_products' => $checkCart
+            ]);
+        }
+            
+        return response()->json([
+            'status' => true,
+            'message' => 'تم التعديل بنجاح',
+        ], 200, [], JSON_UNESCAPED_UNICODE);
+        // $this->is_update_Client=2;
+        // if (!empty($this->instrument_number)) {
+        //     foreach ($this->instrument_number as $key => $value) {
+
+        //         Instrument::create(
+        //             [
+        //                 'client_id' => $client->id,
+        //                 'instruments_number' => $value,
+        //             ]
+        //         );
+        //     }
+        // }
+
+    }
+    public function saveAndDeliverClient()
+    {
+        $this->initializeDeliveryService(App::make(DeliveryService::class));
+
+        /* save client Data */
+        $date_of_birth = $this->birthday;
+
+        $date_of_birth_carbon = new Carbon($date_of_birth);
+        $date_of_birth_year = $date_of_birth_carbon->format('Y');
+        $date_of_birth_month = $date_of_birth_carbon->format('m');
+        $date_of_birth_day = $date_of_birth_carbon->format('d');
+
+        if ($date_of_birth_year > 1700) {
+
+            $d2_carbon = new Carbon($date_of_birth);
+            $date_birth_format = $d2_carbon->format('Y-m-d');
+        } else {
+            $d2 = Hijri::convertToHijri(new \DateTime($date_of_birth))->format('Y-m-d');
+
+            //$d2 = Hijri::DateToGregorianFromDMY($date_of_birth_day, $date_of_birth_month, $date_of_birth_year);
+            $d2_carbon = new Carbon($d2);
+            $date_birth_format = $d2_carbon->format('Y-m-d');
+        }
+
+        try {
+            $data = $this->validate();
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $errors = collect($e->validator->errors()->all())->join('<br>');
+            $this->emit('showToastError', $errors);
+            return;
+        }
+        
+        
+        // dd($data);
+        $userTimezone = Auth::user()->timezone;
+
+        $this->check_cart();
+
+        $cart = $this->basket_due_no;
+        
+        $data = [
+            'id_card_number' => $this->id_card_no,
+            'nationality_id' => $this->nationality_id,
+            'name' => $this->full_name,
+            'sex' => $this->sex,
+            'homeStatus' => $this->homeStatus == 'true' ? true : false,
+            'phone' => $this->phone ? $this->phone : 000000000000,
+            'email' => $this->email,
+            'date_of_birth' => $date_birth_format,
+            'family_member' => $this->dependents_count ?? 0,
+            'separate_family_member' => $this->separate_family_member ?? 0,
+            'marital_status_id' => $this->marital_status,
+            'reason_id' => $this->reason,
+            'city_id' => $this->city_id,
+            'neighborhood_id' => $this->neighborhood_id,
+            'address' => $this->address,
+            'affiliate_id' => $this->affiliate_id,
+            'delivery_store_id' => $this->delivery_store_id ?? 1,
+            'kind_of_help' => $this->kind_of_help,
+            'basket_due_no' => $cart,
+            'status_temp_perm_id' => $this->status_temp_perm_id,
+            'note' => $this->note,
+            'user_add_id' => Auth::user()->id,
+            'recommendations_by_user_id' => $this->recommendations_by_user,
+            'recommendations_id' => $this->recommendations_id,
+            'client_status' => $this->approve,
+            'certified_by_id' => Auth::user()->id, //what??
+            'last_delivery_date' => Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
+            'amount_of_financialHelp' => $this->amount_of_financialHelp,
+            // 'extra_note'                    =>  $this->extra_note,
+            'cam_img' => $this->cam_img,
+        ];
+
+        if(!auth()->user()->can('distribute_anytime')){
+          $today = Carbon::now();
+          $day = $today->day;
+          $firstDigit = substr( $this->id_card_no, 0, 1);
+          // التحقق حسب الفترة الزمنية
+            if ($day >= 1 && $day <= 15) {
+                // فترة السعوديين
+                if ($firstDigit != '1') {
+                    // dd('عذراً، هذه الفترة مخصصة للسعوديين فقط (رقم الهوية يجب أن يبدأ بـ 1');
+                    $inc_info = 6;
+                    Session::flash('error_message', 'عذراً، هذه الفترة مخصصة للسعوديين فقط');
+                    return;
+                    //   return view('search.information', compact('searchIDCard','inc_info'));
+                }
+            } else {
+                // فترة المقيمين
+                if ($firstDigit != '2') {
+                    // dd('عذراً، هذه الفترة مخصصة للمقيمين فقط (رقم الهوية يجب أن يبدأ بـ 2)');
+                    $inc_info = 6;
+                    Session::flash('error_message', 'عذراً، هذه الفترة مخصصة للمقيمين فقط');
+                    return;
+                    //   return view('search.information', compact('searchIDCard','inc_info'));
+                }
+            }
+        }
+
+
+
+        // dd($data, $this->marital_status);
+        $client = null;
+        $checker = null;
+        $edit_deliver = null;
+
+        // If Edit page
+        if ($this->clientIdForEdit) {
+            if ($this->clientIdForEdit != 0) {
+                Client::find($this->clientIdForEdit)->update($data);
+                $client = $checker = Client::find($this->clientIdForEdit);
+                $data_center = DB::table('data_center')->select('data_center_status', 'client_id', 'person_data')->where('client_id', $this->clientIdForEdit)->first();
+                // dd($this->to_send);
+                if ($data_center) {
+                    if ($this->client_found) {
+                        DB::table('data_center')->where('client_id', $this->clientIdForEdit)->update([
+                            'data_center_status' => $this->client_found,
+                            'date' => Date::now(),
+                            'person_data' => json_encode($this->to_send),
+                        ]);
+                    }
+                } else {
+                    DB::table('data_center')->insert([
+                        'client_id' => $client->id,
+                        'data_center_status' => $this->client_found,
+                        'date' => Date::now(),
+                        'person_data' => json_encode($this->to_send),
+                    ]);
+                }
+                Session::flash('success', 'تم التعديل بنجاح');
+            } else {
+                $client = Client::create($data);
+                DB::table('data_center')->insert([
+                    'client_id' => $client->id,
+                    'data_center_status' => $this->client_found,
+                    'date' => Date::now(),
+                ]);
+                Session::flash('success', 'تم الحفظ بنجاح');
+            }
+        } else {
+            // Create New Client and add his data to data_center Table
+            $client = Client::create($data);
+            DB::table('data_center')->insert([
+                'client_id' => $client->id,
+                'data_center_status' => $this->client_found,
+                'date' => Date::now(),
+            ]);
+            Session::flash('success', 'تم الحفظ بنجاح');
+        }
+
+        if (!empty($this->instrument_number)) {
+            foreach ($this->instrument_number as $key => $value) {
+
+                Instrument::create(
+                    [
+                        'client_id' => $client->id,
+                        'instruments_number' => $value,
+                    ]
+                );
+            }
+        }
+
+        // If agents not empty and first one has name 
+        if (!empty($this->agents_list) && !empty($this->agents_list[0]['name'])) {
+            // dd($this->agents_list);
+            foreach ($this->agents_list as $agent) {
+                $dateOfBirth = Carbon::createFromDate(@$agent['birth_year'])->format('Y-m-d');
+
+                // if (isset($agent['id']) && $agent['id']) {
+                //     $existingAgent = Receipt_agents_client::find($agent['id']);
+                //     $existingAgent->update([
+                //         'clients_id' => $client->id,
+                //         'id_card_no' => $agent['id_card_no'],
+                //         'name' => $agent['name'],
+                //         'phone' => $agent['phone'] ?? null,
+                //         'kinship_id' => $agent['kinship_id'],
+                //         'date_of_birth' => $dateOfBirth,
+                //     ]);
+                // } else {
+                //     // Create a new Receipt_agents_client record for each agent
+                //     // if($agent['id_card_no'] && $agent['name']){
+                //     if($agent['name']){
+                //         Receipt_agents_client::create([
+                //             'clients_id' => $client->id,
+                //             'id_card_no' => $agent['id_card_no'],
+                //             'name' => $agent['name'],
+                //             'phone' => $agent['phone'] ?? null, // Use null coalescing operator for optional fields
+                //             'kinship_id' => $agent['kinship_id'],
+                //             'date_of_birth' => $dateOfBirth,
+                //         ]);
+                //     }
+                // }
+
+
+                Receipt_agents_client::updateOrCreate(
+                    ['id' => $agent['id'] ?? null ], // id to find the record
+                    [ // fields to update or create
+                        'clients_id' => $client->id,
+                        'id_card_no' => $agent['id_card_no'],
+                        'name' => $agent['name'],
+                        'phone' => $agent['phone'] ?? null, // Use null coalescing operator for optional fields
+                        'kinship_id' => $agent['kinship_id'],
+                        'date_of_birth' => $dateOfBirth,
+                    ]
+                );
+            }
+        }
+        // if(!empty($this->agents_to_remove) && $this->agents_to_remove[0]){
+        //     foreach($this->agents_to_remove as $agentID){
+        //         Receipt_agents_client::where('id', $checker->id)->delete();
+        //     }
+        // }
+
+        //Receipt_agents_client
+
+        if ($this->accept == 1 && $this->clientIdForEdit == 0) {
+            if(auth()->user()->can('create_client_and_delivery')){
+                $userTimezone = Auth::user()->timezone;
+                // $clients            = Client::where('id_card_number', $this->id_card_no)->first();
+                // dd($clients);
+                $clientID = $client->id;
+                $clientBasket = $client->basket_due_no;
+                $productsID = $this->products;
+                $distributionDate = Carbon::now($userTimezone)->format('yy-m-d');
+                // $noteDistrbution    = $this->distNote;
+
+                $distribution = new Distribution();
+                $distribution->distribution_date = $distributionDate;
+                $distribution->clients_id = $clientID;
+                $distribution->products_id = $productsID;
+                $distribution->number_of_products = $clientBasket;
+                // $distribution->note                      = $noteDistrbution;
+                $distribution->status = 2;
+                $distribution->save();
+
+                /* create delivery */
+
+                $this->distributions_id = $distribution->id;
+                $product_id = $distribution->products_id;
+                $affiliate_id = $client->affiliate_id;
+                $delivery_store_id = $client-> delivery_store_id;
+                $quantity = $distribution->number_of_products;
+                $delivery_users_id = Auth::user()->id;
+                $delivery_affiliates_id = Auth::user()->affiliates_id;
+                $delivery_date = Carbon::now($userTimezone)->format('Y-m-d H:i:s');
+                // $deliveryNote                   = $this->deliveryNote;
+
+                Deliveries::create([
+                    'clients_id' => $clientID,
+                    'distributions_id' => $this->distributions_id,
+                    'products_id' => $product_id,
+                    'quantity' => $quantity,
+                    'delivery_users_id' => $delivery_users_id,
+                    'delivery_affiliates_id' => $delivery_affiliates_id,
+                    'affiliates_id' => $affiliate_id,
+                    'delivery_store_id' => $delivery_store_id,
+                    'delivery_date' => $delivery_date,
+                    // 'note'                     =>  $deliveryNote,
+                ]);
+
+                // Update stock and delivered items
+                try {
+                    $this->deliveryService->processDelivery($client->delivery_store_id, $client->basket_due_no);
+                } catch (\Exception $e) {
+                    // Handle the exception, e.g., show an error message
+                    $this->emit('showToastError', 'Stock update failed: ' . $e->getMessage());
+                    return;
+                }
+
+
+                ////////////////////////////////////
+                $this->increment_in_dist_delivery_counter();
+
+                $delivery = Deliveries::where('distributions_id', $this->distributions_id)->first();
+                if (!$delivery) {
+                    $this->alert('error', 'عفوا لم يتم التسليم ', [
+                        'position' => 'center',
+                        'timer' => 3000,
+                        'toast' => false,
+                        'text' => $this->name,
+                        'showCancelButton' => false,
+                        'showConfirmButton' => false
+                    ]);
+                } else {
+                    $deliveryID = $delivery->id;
+                    /*
+                    create qr code with order print number, number of baskets, name of client, delivery number, distribution number
+                    */
+                    $this->emit('disableButtonOnload');
+                    return redirect()->route('deliveries.print_delivery_order', $deliveryID);
+                    // return redirect()->back();
+                }
+            }
+        }
+
+        $this->emit('disableButtonOnload');
+        return redirect()->route('search.information', ['idCard' => $this->id_card_no]);
+
+        // return redirect()->to('/clients/index');
+    }
+    private function errorResponse($message, $status)
+    {
+        return response()->json([
+            'message' => $message,
+            'status'  => false,
+        ], $status, [], JSON_UNESCAPED_UNICODE);
     }
 }
