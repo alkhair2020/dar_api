@@ -28,6 +28,10 @@ Route::group(['middleware' => ['api'],'prefix' => 'clients', 'namespace' => 'App
     Route::post('login', 'AuthController@login');
      Route::get('search-client', 'FrontController@searchClient');
     Route::post('create-delivery', 'FrontController@createDelivery');
+    Route::post('save-client', 'FrontController@saveClient');
+    Route::post('edit-client', 'FrontController@EditClient');
+    Route::post('client-status', 'FrontController@clientStatus');
+    Route::post('create-client-distribution', 'FrontController@createClientDistribution');
 });
 Route::group(['middleware' => ['api'],'prefix' => 'users', 'namespace' => 'App\Http\Controllers\Api\Users'], function () {
     Route::post('login', 'AuthController@login');
