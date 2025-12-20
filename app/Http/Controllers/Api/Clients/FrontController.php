@@ -23,6 +23,7 @@ use App\Deliveries;
 use App\ClientNotes;
 use App\Receipt_agents_client;
 use App\In_dist_counter_today;
+use App\Statu;
 class FrontController extends Controller
 {
     public function searchClient(Request $request)
@@ -38,11 +39,17 @@ class FrontController extends Controller
             ], 422);
         }
         if (!empty($idCardNumber)) {
+            $data_center   = null;
+            $deliveries    = [];
+            $distribution  = null;
+            $client_notes  = [];
+            $receiptAgents = [];
             $client = Client::where('id_card_number', '=', $idCardNumber)
                 ->with([
                     'marital_status:id,name_ar as maritalStatus',
                     'reason:id,name_ar as reasonName',
                     'cities:id,name_ar as cities',
+                    'countaries:country_code,country_arName',
                     'neighborhoods:id,name_ar as neighborhoods',
                     'affiliates:id,name_ar',
                     'kind_of_helps:id,name_ar as kindOfHelps',
@@ -81,7 +88,7 @@ class FrontController extends Controller
 
                 // وكلاء عني
                 $receiptAgents = Receipt_agents_client::where('clients_id', '=', $client->id)->latest()->get();
-               
+                $status = Statu::get();
             }
             // وكيل عنهم
             $agentAsClient = Receipt_agents_client::where('id_card_no', '=', $idCardNumber)->with('clients')->get();
@@ -95,6 +102,7 @@ class FrontController extends Controller
                      'client_notes' => $client_notes,
                     'receiptAgents'   => $receiptAgents,
                     'agentAsClient'   => $agentAsClient,
+                    'allstatus'=>$status,
                 ],
             ], 200);
             
@@ -661,3 +669,7 @@ class FrontController extends Controller
         ], $status, [], JSON_UNESCAPED_UNICODE);
     }
 }
+
+
+
+
