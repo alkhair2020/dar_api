@@ -291,6 +291,10 @@ class FrontController extends Controller
                     ], 401); 
                 }
             }else{
+                if($checkCart !=$request->numberProducts){
+                    $distribution->number_of_products  = $request->numberProducts;
+                    $distribution->save();
+                }
                 if($distribution->number_of_products !=$checkCart){
                     $distribution->number_of_products  = $checkCart;
                     $distribution->save();
