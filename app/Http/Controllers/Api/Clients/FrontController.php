@@ -284,21 +284,21 @@ class FrontController extends Controller
             ->toArray(); 
 
             if(!in_array('edit_baskets', $mypermissions) ){
-                if ( $distribution->number_of_products>1  || $distribution->number_of_products<1 ) {
+                if ( $request->numberProducts>1  || $request->numberProducts<1 ) {
                     return response()->json([
                         'status' => false,
                         'message' => 'عدد السلال يجب ان يكون سلة واحدة',
                     ], 401); 
                 }
             }else{
-                if($checkCart !=$request->numberProducts){
-                    $distribution->number_of_products  = $request->numberProducts;
-                    $distribution->save();
+                if($distribution->number_of_products !=$request->numberProducts){
+                        $distribution->number_of_products  = $request->numberProducts;
+                        $distribution->save();
                 }
-                if($distribution->number_of_products !=$checkCart){
-                    $distribution->number_of_products  = $checkCart;
-                    $distribution->save();
-                }
+                // if($distribution->number_of_products !=$checkCart){
+                //     $distribution->number_of_products  = $checkCart;
+                //     $distribution->save();
+                // }
             }
             
             $date_of_birth_carbon   = new Carbon($client->date_of_birth);
@@ -359,6 +359,7 @@ class FrontController extends Controller
 
             $data = [
                 'phone'                             =>  $client->phone,
+                'basket_due_no'                             =>  $checkCart, 
                 'last_delivery_date'                =>  Carbon::now($userTimezone)->format('Y-m-d H:i:s'),
             ];
             $client->update($data);
@@ -368,8 +369,9 @@ class FrontController extends Controller
             $editedist->save();
             $this->increment_in_dist_delivery_counter();
             return response()->json([
-                'status' => true,
-                'message' => 'تم التسليم',
+                'status'    => true,
+                'message'   => 'تم إنشاء التسليم بنجاح',
+                'data'      =>$add_eliveries,
             ], 200, [], JSON_UNESCAPED_UNICODE);
             
             
