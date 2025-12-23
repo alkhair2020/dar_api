@@ -44,6 +44,7 @@ class FrontController extends Controller
             $distribution  = null;
             $client_notes  = [];
             $receiptAgents = [];
+            $status = [];
             $client = Client::where('id_card_number', '=', $idCardNumber)
                 ->with([
                     'marital_status:id,name_ar as maritalStatus',
@@ -64,10 +65,22 @@ class FrontController extends Controller
                 // Search Data Center 
                 $data_center = DB::table('data_center')->select('data_center_status', 'date')->where('client_id', '=', $client->id)->first();
                 // Get all distibutions
-                $deliveries = Deliveries::where('clients_id', $client->id)
-                    ->with('products:id,name_ar as productName')
+                $deliveries = 
+                    // Deliveries::where('clients_id', $client->id)
+                    // ->with('products:id,name_ar as productName')
+                    // ->limit(5)
+                    // ->latest()->get();
+
+                    Deliveries::
+                    where('clients_id', $client->id)
+                    ->with('distributions')
+                    ->with('delivery_users:id,name')
+                    ->with('delivery_storage:id,name')
+                    ->with('receipt_agents_clients:id,name')
                     ->limit(5)
                     ->latest()->get();
+
+
                 // check have distribution
                 $distribution = Distribution::where('status', '=', 1)->first();
 
