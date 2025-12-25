@@ -34,19 +34,19 @@ class FrontController extends Controller
     {
         $lang = 'ar';
 
-        $countries = Countries::select('country_code', 'country_' . $lang . 'Name as countrayName')->orderBy('countrayName')->limit(5)->get();
-        $allMarital_status = Marital_status::select('id', 'name_' . $lang . ' as marital_name')->where('show', 1)->limit(5)->get();
+        $countries = Countries::select('country_code', 'country_' . $lang . 'Name as countrayName')->orderBy('countrayName')->get();
+        $allMarital_status = Marital_status::select('id', 'name_' . $lang . ' as marital_name')->where('show', 1)->get();
         $reasons = Reason::select('id', 'name_' . $lang . ' as reasons_name')
-            ->where('show', 1)->limit(5)
+            ->where('show', 1)
             ->get();
-        $cities = Citie::select('id', 'name_' . $lang . ' as cities_name')->where('show', 1)->limit(5)->get();
-        $neighborhoods = Neighborhood::select('id', 'name_' . $lang . ' as neighborhoods_name')->where('show', 1)->limit(5)->get();
-        $affiliates = Affiliate::select('id', 'name_' . $lang . ' as affiliates_name')->limit(5)->get();
-        $stores = Store::select('id', 'name_' . $lang . ' as store_name')->limit(5)->get();
-        $users = User::select('id', 'name')->limit(5)->get();
-        $recommendations = Recommendation::select('id', 'name_' . $lang . ' as recommendations_name')->limit(5)->get();
-        $allProducts = Product::select('id', 'name_' . $lang . ' as products_name')->limit(5)->get();
-        $allFamily_relations = Kinship::where('show', 1)->limit(5)->get();
+        $cities = Citie::select('id', 'name_' . $lang . ' as cities_name')->where('show', 1)->get();
+        $neighborhoods = Neighborhood::select('id', 'name_' . $lang . ' as neighborhoods_name')->where('show', 1)->get();
+        $affiliates = Affiliate::select('id', 'name_' . $lang . ' as affiliates_name')->get();
+        $stores = Store::select('id', 'name_' . $lang . ' as store_name')->get();
+        $users = User::select('id', 'name')->get();
+        $recommendations = Recommendation::select('id', 'name_' . $lang . ' as recommendations_name')->get();
+        $allProducts = Product::select('id', 'name_' . $lang . ' as products_name')->get();
+        $allFamily_relations = Kinship::where('show', 1)->get();
         
         return response()->json([
             'status' => true,
